@@ -3,11 +3,12 @@ package eu.mikroskeem.asynclightning.mixins;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import eu.mikroskeem.asynclightning.AsyncLighting;
 import eu.mikroskeem.asynclightning.interfaces.AsyncLightingChunk;
-import eu.mikroskeem.asynclightning.interfaces.AsyncLightingWorldServer;
+import eu.mikroskeem.asynclightning.interfaces.AsyncLightingWorld;
 import net.minecraft.server.v1_12_R1.BlockPosition;
 import net.minecraft.server.v1_12_R1.Chunk;
 import net.minecraft.server.v1_12_R1.EnumDirection;
 import net.minecraft.server.v1_12_R1.EnumSkyBlock;
+import net.minecraft.server.v1_12_R1.IBlockData;
 import net.minecraft.server.v1_12_R1.IChunkProvider;
 import net.minecraft.server.v1_12_R1.MCUtil;
 import net.minecraft.server.v1_12_R1.MathHelper;
@@ -25,16 +26,17 @@ import java.util.concurrent.Executors;
  * @author Mark Vainomaa
  */
 @Mixin(value = World.class, remap = false)
-public abstract class MixinWorldServer implements AsyncLightingWorldServer {
-    private static final int NUM_XZ_BITS = 4;
-    private static final int NUM_SHORT_Y_BITS = 8;
-    private static final short XZ_MASK = 0xF;
-    private static final short Y_SHORT_MASK = 0xFF;
+public abstract class MixinWorld_AsyncLighting implements AsyncLightingWorld {
+    private static final int ASYNC$NUM_XZ_BITS = 4;
+    private static final int ASYNC$NUM_SHORT_Y_BITS = 8;
+    private static final short ASYNC$XZ_MASK = 0xF;
+    private static final short ASYNC$Y_SHORT_MASK = 0xFF;
 
     @Shadow @Nullable public abstract MinecraftServer getMinecraftServer();
     @Shadow public abstract IChunkProvider getChunkProvider();
+    @Shadow public abstract void m(BlockPosition blockposition); // MCP - notifyLightSet(...)
+    @Shadow int[] J; // MCP - lightUpdateBlockList
 
-    @Shadow private int[] J;
     private ExecutorService lightExecutorService = Executors.newFixedThreadPool(
             AsyncLighting.INSTANCE.config.numAsyncThreads,
             new ThreadFactoryBuilder()
@@ -42,15 +44,10 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
                     .build()
     );
 
+    // MCP - checkLightFor -> c
     @Override
-    public boolean checkLightFor(EnumSkyBlock lightType, BlockPosition pos) {
-        return this.updateLightAsync(lightType, pos, null);
-    }
-
-    //@Override - remap
-    // MCP - checkLightFor
     public boolean c(EnumSkyBlock enumskyblock, BlockPosition blockposition) {
-        return checkLightFor(enumskyblock, blockposition);
+        return this.updateLightAsync(enumskyblock, blockposition, null);
     }
 
     @Override
@@ -128,7 +125,7 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
         int k1 = pos.getZ();
 
         if (l > k) {
-            // MCP - J
+            // MCP - lightUpdateBlockList
             this.J[j++] = 133152;
         } else if (l < k) {
             this.J[j++] = 133152 | k << 18;
@@ -151,7 +148,7 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
                         int l3 = MathHelper.a(k2 - k1); // MCP - abs
 
                         if (j3 + k3 + l3 < 17) {
-                            BlockPosition.PooledBlockPosition blockpos$pooledmutableblockpos = BlockPosition.PooledBlockPosition.aquire(); // MCP - retain();
+                            BlockPosition.PooledBlockPosition blockpos$pooledmutableblockpos = BlockPosition.PooledBlockPosition.s(); // MCP - retain();
 
                             // MCP - EnumFacing
                             for(EnumDirection enumfacing : EnumDirection.values()) {
@@ -186,11 +183,11 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
             int k5 = (i5 >> 6 & 63) - 32 + j1;
             int l5 = (i5 >> 12 & 63) - 32 + k1;
             BlockPosition blockpos1 = new BlockPosition(j5, k5, l5);
-            int i6 = this.getLightForAsync(lightType, blockpos1, currentChunk, neighbors); // Sponge - use thread safe method
-            int j6 = this.getRawBlockLightAsync(lightType, blockpos1, currentChunk, neighbors); // Sponge - use thread safe method
+            int i6 = this.getLightForAsync(lightType, blockpos1, currentChunk, neighbors);
+            int j6 = this.getRawBlockLightAsync(lightType, blockpos1, currentChunk, neighbors);
 
             if (j6 != i6) {
-                this.setLightForAsync(lightType, blockpos1, j6, currentChunk, neighbors); // Sponge - use thread safe method
+                this.setLightForAsync(lightType, blockpos1, j6, currentChunk, neighbors);
 
                 if (j6 > i6) {
                     int k6 = Math.abs(j5 - i1);
@@ -242,10 +239,112 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
         return lightExecutorService;
     }
 
+    // Thread safe methods to retrieve a chunk during async light updates
+    // Each method avoids calling getLoadedChunk and instead accesses the passed neighbor chunk list to avoid concurrency issues
+    public Chunk getLightChunk(BlockPosition pos, Chunk currentChunk, List<Chunk> neighbors) {
+        // MCP - isAtLocation
+        if (currentChunk.a(pos.getX() >> 4, pos.getZ() >> 4)) {
+            if (currentChunk.d) {
+                return null;
+            }
+            return currentChunk;
+        }
+        for (Chunk neighbor : neighbors) {
+            if (neighbor.a(pos.getX() >> 4, pos.getZ() >> 4)) {
+                if (neighbor.d) {
+                    return null;
+                }
+                return neighbor;
+            }
+        }
+
+        return null;
+    }
+
+    private int getLightForAsync(EnumSkyBlock lightType, BlockPosition pos, Chunk currentChunk, List<Chunk> neighbors) {
+        if (pos.getY() < 0) {
+            pos = new BlockPosition(pos.getX(), 0, pos.getZ());
+        }
+        /* TODO: is this needed?
+        if (!((IMixinBlockPos) pos).isValidPosition()) {
+            // isVaildPosition() -> return this.x >= -30000000 && this.z >= -30000000 && this.x < 30000000 &&
+                                           this.z < 30000000 && this.y >= 0 && this.y < 256;
+            return lightType.c; // MCP - defaultLightValue
+        }
+        */
+
+        final Chunk chunk = this.getLightChunk(pos, currentChunk, neighbors);
+        if (chunk == null || chunk.d) {
+            return lightType.c;
+        }
+
+        return chunk.getBrightness(lightType, pos); // MCP - getLightFor(...)
+    }
+
+    private int getRawBlockLightAsync(EnumSkyBlock lightType, BlockPosition pos, Chunk currentChunk, List<Chunk> neighbors) {
+        final Chunk chunk = getLightChunk(pos, currentChunk, neighbors);
+        if (chunk == null || chunk.d) {
+            return lightType.c;
+        }
+        //                                         MCP - canSeeSky(...)
+        if (lightType == EnumSkyBlock.SKY && chunk.c(pos)) {
+            return 15;
+        } else {
+            IBlockData blockState = chunk.getBlockData(pos);
+            int blockLight = //SpongeImplHooks.getChunkPosLight(blockState, (net.minecraft.world.World) (Object) this, pos);
+                    blockState.d(); // MCP - getLightValue();
+            int i = lightType == EnumSkyBlock.SKY ? 0 : blockLight;
+            int j = //SpongeImplHooks.getBlockLightOpacity(blockState, (net.minecraft.world.World) (Object) this, pos);
+                    blockState.c(); // MCP - getLightOpacity()
+
+            if (j >= 15 && blockLight > 0) {
+                j = 1;
+            }
+
+            if (j < 1) {
+                j = 1;
+            }
+
+            if (j >= 15) {
+                return 0;
+            } else if (i >= 14) {
+                return i;
+            } else {
+                for (EnumDirection enumfacing : EnumDirection.values()) {
+                    BlockPosition blockpos = pos.shift(enumfacing);
+                    int k = this.getLightForAsync(lightType, blockpos, currentChunk, neighbors) - j;
+
+                    if (k > i) {
+                        i = k;
+                    }
+
+                    if (i >= 14) {
+                        return i;
+                    }
+                }
+
+                return i;
+            }
+        }
+    }
+
+    public void setLightForAsync(EnumSkyBlock type, BlockPosition pos, int lightValue, Chunk currentChunk, List<Chunk> neighbors) {
+        /* TODO: see above
+        if (!((IMixinBlockPos) pos).isValidPosition()) {
+            return;
+        }
+        */
+        final Chunk chunk = this.getLightChunk(pos, currentChunk, neighbors);
+        if (chunk != null && !chunk.d) {
+            chunk.a(type, pos, lightValue); // MCP - setLightFor(...)
+            this.m(pos); // MCP - notifyLightSet(...)
+        }
+    }
+
     private short blockPosToShort(BlockPosition pos) {
-        short serialized = (short) setNibble(0, pos.getX() & XZ_MASK, 0, NUM_XZ_BITS);
-        serialized = (short) setNibble(serialized, pos.getY() & Y_SHORT_MASK, 1, NUM_SHORT_Y_BITS);
-        serialized = (short) setNibble(serialized, pos.getZ() & XZ_MASK, 3, NUM_XZ_BITS);
+        short serialized = (short) setNibble(0, pos.getX() & ASYNC$XZ_MASK, 0, ASYNC$NUM_XZ_BITS);
+        serialized = (short) setNibble(serialized, pos.getY() & ASYNC$Y_SHORT_MASK, 1, ASYNC$NUM_SHORT_Y_BITS);
+        serialized = (short) setNibble(serialized, pos.getZ() & ASYNC$XZ_MASK, 3, ASYNC$NUM_XZ_BITS);
         return serialized;
     }
 

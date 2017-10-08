@@ -30,7 +30,7 @@ public final class AsyncLighting {
 
     @Subscribe
     public void on(ModConstructEvent e) throws Exception {
-        configurationLoader.load();
+        baseNode = configurationLoader.load();
         om = ObjectMapper.forClass(AsyncLightingConfig.class).bindToNew();
         om.populate(baseNode.getNode("asynclighting"));
         om.serialize(baseNode.getNode("asynclighting"));

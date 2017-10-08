@@ -1,7 +1,11 @@
 package eu.mikroskeem.asynclightning.interfaces;
 
+import net.minecraft.server.v1_12_R1.BlockPosition;
+import net.minecraft.server.v1_12_R1.Chunk;
+import net.minecraft.server.v1_12_R1.EnumDirection;
 import net.minecraft.server.v1_12_R1.EnumSkyBlock;
 
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -14,6 +18,11 @@ public interface AsyncLightingChunk {
     long getLightUpdateTime();
     void setLightUpdateTime(long time);
 
+    /* Exposed methods */
+    void checkLightSide(EnumDirection direction);
+
     /* Ported from Sponge */
     boolean areNeighborsLoaded();
+    Chunk getNeighborChunk(int index);
+    List<Chunk> getNeighbors();
 }
