@@ -34,6 +34,7 @@ public final class AsyncLighting {
         om = ObjectMapper.forClass(AsyncLightingConfig.class).bindToNew();
         om.populate(baseNode.getNode("asynclighting"));
         om.serialize(baseNode.getNode("asynclighting"));
+        configurationLoader.save(baseNode);
         config = om.getInstance();
 
         logger.info("Sponge Async Lighting V2 patch - Orion port by mikroskeem");
