@@ -12,7 +12,7 @@ import net.minecraft.server.v1_12_R1.IChunkProvider;
 import net.minecraft.server.v1_12_R1.MCUtil;
 import net.minecraft.server.v1_12_R1.MathHelper;
 import net.minecraft.server.v1_12_R1.MinecraftServer;
-import net.minecraft.server.v1_12_R1.WorldServer;
+import net.minecraft.server.v1_12_R1.World;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
@@ -24,7 +24,7 @@ import java.util.concurrent.Executors;
 /**
  * @author Mark Vainomaa
  */
-@Mixin(value = WorldServer.class, remap = false)
+@Mixin(value = World.class, remap = false)
 public abstract class MixinWorldServer implements AsyncLightingWorldServer {
     private static final int NUM_XZ_BITS = 4;
     private static final int NUM_SHORT_Y_BITS = 8;
@@ -34,6 +34,7 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
     @Shadow @Nullable public abstract MinecraftServer getMinecraftServer();
     @Shadow public abstract IChunkProvider getChunkProvider();
 
+    @Shadow private int[] J;
     private ExecutorService lightExecutorService = Executors.newFixedThreadPool(
             AsyncLighting.INSTANCE.config.numAsyncThreads,
             new ThreadFactoryBuilder()
@@ -127,12 +128,13 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
         int k1 = pos.getZ();
 
         if (l > k) {
-            this.lightUpdateBlockList[j++] = 133152;
+            // MCP - J
+            this.J[j++] = 133152;
         } else if (l < k) {
-            this.lightUpdateBlockList[j++] = 133152 | k << 18;
+            this.J[j++] = 133152 | k << 18;
 
             while (i < j) {
-                int l1 = this.lightUpdateBlockList[i++];
+                int l1 = this.J[i++];
                 int i2 = (l1 & 63) - 32 + i1;
                 int j2 = (l1 >> 6 & 63) - 32 + j1;
                 int k2 = (l1 >> 12 & 63) - 32 + k1;
@@ -161,11 +163,11 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
                                 if (pooledChunk == null) {
                                     continue;
                                 }
-                                int l4 = Math.max(1, pooledChunk.getBlockState(blockpos$pooledmutableblockpos).getLightOpacity());
+                                int l4 = Math.max(1, pooledChunk.getBlockData(blockpos$pooledmutableblockpos).c());
                                 i3 = this.getLightForAsync(lightType, blockpos$pooledmutableblockpos, currentChunk, neighbors);
 
-                                if (i3 == l2 - l4 && j < this.lightUpdateBlockList.length) {
-                                    this.lightUpdateBlockList[j++] = i4 - i1 + 32 | j4 - j1 + 32 << 6 | k4 - k1 + 32 << 12 | l2 - l4 << 18;
+                                if (i3 == l2 - l4 && j < this.J.length) {
+                                    this.J[j++] = i4 - i1 + 32 | j4 - j1 + 32 << 6 | k4 - k1 + 32 << 12 | l2 - l4 << 18;
                                 }
                             }
 
@@ -179,7 +181,7 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
         }
 
         while (i < j) {
-            int i5 = this.lightUpdateBlockList[i++];
+            int i5 = this.J[i++];
             int j5 = (i5 & 63) - 32 + i1;
             int k5 = (i5 >> 6 & 63) - 32 + j1;
             int l5 = (i5 >> 12 & 63) - 32 + k1;
@@ -194,31 +196,31 @@ public abstract class MixinWorldServer implements AsyncLightingWorldServer {
                     int k6 = Math.abs(j5 - i1);
                     int l6 = Math.abs(k5 - j1);
                     int i7 = Math.abs(l5 - k1);
-                    boolean flag = j < this.lightUpdateBlockList.length - 6;
+                    boolean flag = j < this.J.length - 6;
 
                     if (k6 + l6 + i7 < 17 && flag) {
                         if (this.getLightForAsync(lightType, blockpos1.west(), currentChunk, neighbors) < j6) {
-                            this.lightUpdateBlockList[j++] = j5 - 1 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
+                            this.J[j++] = j5 - 1 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
                         }
 
                         if (this.getLightForAsync(lightType, blockpos1.east(), currentChunk, neighbors) < j6) {
-                            this.lightUpdateBlockList[j++] = j5 + 1 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
+                            this.J[j++] = j5 + 1 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
                         }
 
                         if (this.getLightForAsync(lightType, blockpos1.down(), currentChunk, neighbors) < j6) {
-                            this.lightUpdateBlockList[j++] = j5 - i1 + 32 + (k5 - 1 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
+                            this.J[j++] = j5 - i1 + 32 + (k5 - 1 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
                         }
 
                         if (this.getLightForAsync(lightType, blockpos1.up(), currentChunk, neighbors) < j6) {
-                            this.lightUpdateBlockList[j++] = j5 - i1 + 32 + (k5 + 1 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
+                            this.J[j++] = j5 - i1 + 32 + (k5 + 1 - j1 + 32 << 6) + (l5 - k1 + 32 << 12);
                         }
 
                         if (this.getLightForAsync(lightType, blockpos1.north(), currentChunk, neighbors) < j6) {
-                            this.lightUpdateBlockList[j++] = j5 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 - 1 - k1 + 32 << 12);
+                            this.J[j++] = j5 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 - 1 - k1 + 32 << 12);
                         }
 
                         if (this.getLightForAsync(lightType, blockpos1.south(), currentChunk, neighbors) < j6) {
-                            this.lightUpdateBlockList[j++] = j5 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 + 1 - k1 + 32 << 12);
+                            this.J[j++] = j5 - i1 + 32 + (k5 - j1 + 32 << 6) + (l5 + 1 - k1 + 32 << 12);
                         }
                     }
                 }

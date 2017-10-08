@@ -8,7 +8,7 @@ import net.minecraft.server.v1_12_R1.Chunk;
 import net.minecraft.server.v1_12_R1.ChunkSection;
 import net.minecraft.server.v1_12_R1.EnumDirection;
 import net.minecraft.server.v1_12_R1.EnumSkyBlock;
-import net.minecraft.server.v1_12_R1.IBlockState;
+import net.minecraft.server.v1_12_R1.IBlockData;
 import net.minecraft.server.v1_12_R1.MCUtil;
 import net.minecraft.server.v1_12_R1.TileEntity;
 import net.minecraft.server.v1_12_R1.World;
@@ -20,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -45,15 +46,29 @@ public abstract class MixinChunk implements AsyncLightingChunk {
     @Shadow @Final public int locZ; // MCP - x
     @Shadow @Final public int locX; // MCP - z
     @Shadow private boolean s; // MCP - dirty
+    @Shadow @Nullable public abstract TileEntity a(BlockPosition blockposition, Chunk.EnumTileEntityState chunk_enumtileentitystate); // MCP - getTileEntity
     @Shadow @Final private ConcurrentLinkedQueue<BlockPosition> y; // MCP - tileEntityPosQueue
     @Shadow @Final private ChunkSection[] sections; // MCP - storageArrays
     @Shadow @Final private boolean[] i; // MCP - updateSkylightColumns
-    @Shadow private int x; // MCP - heightMapMinimum // TODO: verify
+    @Shadow private int v; // MCP - heightMapMinimum
+    @Shadow protected abstract void a(int i, int j, int k, int l); // MCP - updateSkylightNeighborHeight
+    @Shadow protected abstract int d(int i, int j, int k); // MCP - getBlockLightOpacity(...)
+    @Shadow public abstract int b(int i, int j); // MCP - getHeightValue
+    @Shadow public abstract int w(); // MCP - getLowestHeight
+    @Shadow public boolean d; // MCP - unloadQueued
+    @Shadow private boolean m; // MCP - isGapLightingUpdate
+    @Shadow private boolean r; // MCP - ticked
+    @Shadow private boolean lit; // MCP - isLightPopulated
+    @Shadow private boolean done; // MCP - isTerrainPopulated
+    @Shadow public abstract IBlockData getBlockData(BlockPosition pos); // MCP - getBlockState
+    @Shadow @Nullable protected abstract TileEntity g(BlockPosition blockposition); // MCP - createNewTileEntity
+    @Shadow protected abstract void b(int i, int j, int k); // MCP - checkSkylightNeighborHeight
+    @Shadow public abstract int g(); // MCP - getTopFilledSegment()
+    @Shadow protected abstract void z(); // MCP - setSkylightUpdated()
+
     @Shadow @Final public int[] heightMap;
     @Shadow @Final public World world;
     @Shadow public abstract ChunkSection[] getSections();
-
-    @Shadow public abstract void markDirty();
 
     @Inject(method = "<init>(Lnet/minecraft/server/v1_12_R1/World;II)V", at = @At("RETURN"))
     private void onConstruct(World world, int x, int z, CallbackInfo ci) {
@@ -63,58 +78,67 @@ public abstract class MixinChunk implements AsyncLightingChunk {
         }
     }
 
-    @Inject(method = "onTick", at = @At("HEAD"), cancellable = true)
+    // MCP - target: onTick -> b
+    @Inject(method = "b(Z)V", at = @At("HEAD"), cancellable = true)
     private void onTickHead(boolean skipRecheckGaps, CallbackInfo ci) {
         if (!this.world.isClientSide) {
             final List<Chunk> neighbors = this.getSurroundingChunks();
-            if (this.isGapLightingUpdated && this.world.worldProvider.isSkyMissing() && !skipRecheckGaps && !neighbors.isEmpty()) {
+            if (this.m && this.world.worldProvider.m() && !skipRecheckGaps && !neighbors.isEmpty()) {
                 this.lightExecutorService.execute(() -> this.recheckGapsAsync(neighbors));
-                this.isGapLightingUpdated = false;
+                // MCP - isGapLightingUpdate
+                this.m = false;
             }
 
-            this.ticked = true;
+            this.r = true;
 
-            if (!this.isLightPopulated && this.isTerrainPopulated && !neighbors.isEmpty()) {
+            if (!this.lit && this.done && !neighbors.isEmpty()) {
                 this.lightExecutorService.execute(() -> {
                     this.checkLightAsync(neighbors);
                 });
                 // set to true to avoid requeuing the same task when not finished
-                this.isLightPopulated = true;
+                this.lit = true;
             }
 
-            while (!this.tileEntityPosQueue.isEmpty()) {
-                BlockPosition blockpos = (BlockPosition) this.tileEntityPosQueue.poll();
+            while (!this.y.isEmpty()) {
+                BlockPosition blockpos = this.y.poll();
 
-                //                               MCP - Chunk.EnumCreateEntityType
-                if(this.getTileEntity(blockpos, Chunk.EnumTileEntityState.CHECK) == null && this.getBlockState(blockpos).getBlock().hasTileEntity()) {
-                    TileEntity tileentity = this.createNewTileEntity(blockpos);
+                // MCP - getTileEntity(...) MCP - Chunk.EnumCreateEntityType                                           MCP - hasTileEntity()
+                if(this.a(blockpos, Chunk.EnumTileEntityState.CHECK) == null && this.getBlockData(blockpos).getBlock().isTileEntity()) {
+                    // MCP - createNewTileEntity
+                    TileEntity tileentity = this.g(blockpos);
                     this.world.setTileEntity(blockpos, tileentity);
-                    this.world.markBlockRangeForRenderUpdate(blockpos, blockpos);
+                    // MCP - markBlockRangeForRenderUpdate
+                    this.world.b(blockpos, blockpos);
                 }
             }
             ci.cancel();
         }
     }
 
-    @Redirect(method = "checkSkylightNeighborHeight", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;getHeight(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/util/math/BlockPos;"))
+    // MCP - target: checkSkylightNeighborHeight -> b
+    @Redirect(method = "b(III)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;getHeight(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/util/math/BlockPos;"))
     private BlockPosition onCheckSkylightGetHeight(World world, BlockPosition pos) {
         final Chunk chunk = this.getLightChunk(pos.getX() >> 4, pos.getZ() >> 4, null);
         if (chunk == null) {
             return DUMMY_POS;
         }
 
-        return new BlockPos(pos.getX(), chunk.getHeightValue(pos.getX() & 15, pos.getZ() & 15), pos.getZ());
+        //                                         MCP - getHeightValue
+        return new BlockPosition(pos.getX(), chunk.b(pos.getX() & 15, pos.getZ() & 15), pos.getZ());
     }
 
-    @Redirect(method = "updateSkylightNeighborHeight", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isAreaLoaded(Lnet/minecraft/util/math/BlockPos;I)Z"))
+    // MCP - target: updateSkylightNeighborHeight -> a
+    @Redirect(method = "a(IIII)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isAreaLoaded(Lnet/minecraft/util/math/BlockPos;I)Z"))
     private boolean onAreaLoadedSkyLightNeighbor(World world, BlockPosition pos, int radius) {
         return this.isAreaLoaded();
     }
 
-    @Redirect(method = "updateSkylightNeighborHeight", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;checkLightFor(Lnet/minecraft/world/EnumSkyBlock;Lnet/minecraft/util/math/BlockPos;)Z"))
+    // MCP - target: updateSkylightNeighborHeight -> a
+    @Redirect(method = "a(IIII)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;checkLightFor(Lnet/minecraft/world/EnumSkyBlock;Lnet/minecraft/util/math/BlockPos;)Z"))
     private boolean onCheckLightForSkylightNeighbor(World world, EnumSkyBlock enumSkyBlock, BlockPosition pos) {
-        if (world.isRemote) {
-            return world.checkLightFor(enumSkyBlock, pos);
+        if(world.isClientSide) {
+            // MCP - checkLightFor
+            return world.c(enumSkyBlock, pos);
         }
 
         return this.checkWorldLightFor(enumSkyBlock, pos);
@@ -128,11 +152,12 @@ public abstract class MixinChunk implements AsyncLightingChunk {
     private void recheckGapsAsync(List<Chunk> neighbors) {
         for (int i = 0; i < 16; ++i) {
             for (int j = 0; j < 16; ++j) {
-                if (this.updateSkylightColumns[i + j * 16]) {
-                    this.updateSkylightColumns[i + j * 16] = false;
-                    int k = this.getHeightValue(i, j);
-                    int l = this.x * 16 + i;
-                    int i1 = this.z * 16 + j;
+                // MCP - updateSkylightColumns
+                if (this.i[i + j * 16]) {
+                    this.i[i + j * 16] = false;
+                    int k = this.b(i, j);
+                    int l = this.locX * 16 + i;
+                    int i1 = this.locZ * 16 + j;
                     int j1 = Integer.MAX_VALUE;
 
                     for (EnumDirection enumfacing : EnumDirection.EnumDirectionLimit.HORIZONTAL) {
@@ -140,14 +165,16 @@ public abstract class MixinChunk implements AsyncLightingChunk {
                         if (chunk == null || chunk.d) {
                             continue;
                         }
-                        j1 = Math.min(j1, chunk.getLowestHeight());
+                        //                MCP - getLowestHeight
+                        j1 = Math.min(j1, chunk.w());
                     }
 
-                    this.checkSkylightNeighborHeight(l, i1, j1);
+                    // MCP - checkSkylightNeighborHeight
+                    this.b(l, i1, j1);
                     
                     //                               MCP - EnumFacing.Plane
                     for (EnumDirection enumfacing1 : EnumDirection.EnumDirectionLimit.HORIZONTAL) {
-                        this.checkSkylightNeighborHeight(l + enumfacing1.getAdjacentX(), i1 + enumfacing1.getAdjacentZ(), k);
+                        this.b(l + enumfacing1.getAdjacentX(), i1 + enumfacing1.getAdjacentZ(), k);
                     }
                 }
             }
@@ -156,8 +183,9 @@ public abstract class MixinChunk implements AsyncLightingChunk {
         }
     }
 
-    @Redirect(method = "enqueueRelightChecks", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;getBlockState(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/block/state/IBlockState;"))
-    private IBlockState onRelightChecksGetBlockState(World world, BlockPosition pos) {
+    // MCP - IBlockState -> IBlockData, target: n -> enqueueRelightChecks
+    @Redirect(method = "n", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;getBlockState(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/block/state/IBlockState;"))
+    private IBlockData onRelightChecksGetBlockState(World world, BlockPosition pos) {
         //Chunk chunk = world.getChunkProvider().getLoadedChunkWithoutMarkingActive(pos.getX() >> 4, pos.getZ() >> 4);
         Chunk chunk = MCUtil.getLoadedChunkWithoutMarkingActive(world.getChunkProvider(), pos.getX() >> 4, pos.getZ() >> 4);
         
@@ -165,43 +193,50 @@ public abstract class MixinChunk implements AsyncLightingChunk {
         final AsyncLightingChunk asyncLightingChunk = (AsyncLightingChunk) chunk;
         //                   MCP - unloadQueued
         if (chunk == null || chunk.d || !asyncLightingChunk.areNeighborsLoaded()) {
-            return Blocks.AIR.getDefaultState(); // MCP -
+            return Blocks.AIR.getBlockData();
         }
-        
-        return chunk.getBlockState(pos);
+
+        // MCP - getBlockState(...)
+        return chunk.getBlockData(pos);
     }
 
-    @Redirect(method = "enqueueRelightChecks", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;checkLight(Lnet/minecraft/util/math/BlockPos;)Z"))
+    // MCP - target: enqueueRelightChecks -> n
+    @Redirect(method = "n", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;checkLight(Lnet/minecraft/util/math/BlockPos;)Z"))
     private boolean onRelightChecksCheckLight(World world, BlockPosition pos) {
         if (!this.world.isClientSide) {
             return this.checkWorldLight(pos);
         }
 
-        return world.checkLight(pos);
+        // MCP - checkLight(...)
+        return world.w(pos);
     }
 
     // Avoids grabbing chunk async during light check
-    @Redirect(method = "checkLight(II)Z", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;checkLight(Lnet/minecraft/util/math/BlockPos;)Z"))
+    // MCP - target: checkLight -> e
+    @Redirect(method = "e(II)Z", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;checkLight(Lnet/minecraft/util/math/BlockPos;)Z"))
     private boolean onCheckLightWorld(World world, BlockPosition pos) {
         if (!world.isClientSide) {
             return this.checkWorldLight(pos);
         }
-        return world.checkLight(pos);
+        // MCP - checkLight(...)
+        return world.w(pos);
     }
 
-    @Inject(method = "checkLight", at = @At("HEAD"), cancellable = true)
+    // MCP - target: checkLight -> o
+    @Inject(method = "o", at = @At("HEAD"), cancellable = true)
     private void checkLightHead(CallbackInfo ci) {
         if (!this.world.isClientSide) {
             if (this.world.getMinecraftServer().isStopped() || this.lightExecutorService.isShutdown()) {
                 return;
             }
 
-            if (this.isQueuedForUnload()) {
+            // MCP - isQueuedForUnload() -> unloadQueued
+            if (this.d) {
                 return;
             }
             final List<Chunk> neighborChunks = this.getSurroundingChunks();
             if (neighborChunks.isEmpty()) {
-                this.isLightPopulated = false;
+                this.lit = false;
                 return;
             }
             
@@ -222,36 +257,37 @@ public abstract class MixinChunk implements AsyncLightingChunk {
      * @param neighbors A thread-safe list of surrounding neighbor chunks
      */
     private void checkLightAsync(List<Chunk> neighbors) {
-        this.isTerrainPopulated = true;
-        this.isLightPopulated = true;
-        BlockPosition blockpos = new BlockPosition(this.x << 4, 0, this.z << 4);
+        this.done = true;
+        this.lit = true;
+        BlockPosition blockpos = new BlockPosition(this.locX << 4, 0, this.locZ << 4);
 
-        if (this.world.provider.hasSkyLight()) {
+        if (this.world.worldProvider.m()) {
             label44:
 
             for (int i = 0; i < 16; ++i) {
                 for (int j = 0; j < 16; ++j) {
                     if (!this.checkLightAsync(i, j, neighbors)) {
-                        this.isLightPopulated = false;
+                        this.lit = false;
                         break label44;
                     }
                 }
             }
 
-            if (this.isLightPopulated) {
+            if (this.lit) {
                 for (EnumDirection enumfacing : EnumDirection.EnumDirectionLimit.HORIZONTAL) {
-                    //                                       MCP - EnumFacing.AxisDirection.POSITIVE
-                    //      MCP - getAxisDirection
+                    //   MCP - getAxisDirection   MCP - EnumFacing.AxisDirection.POSITIVE
                     int k = enumfacing.c() == EnumDirection.EnumAxisDirection.POSITIVE ? 16 : 1;
-                    final BlockPosition pos = blockpos.offset(enumfacing, k);
+                    //                                 MCP - offset
+                    final BlockPosition pos = blockpos.shift(enumfacing, k);
                     final Chunk chunk = this.getLightChunk(pos.getX() >> 4, pos.getZ() >> 4, neighbors);
                     if (chunk == null) {
                         continue;
                     }
-                    chunk.checkLightSide(enumfacing.getOpposite());
+                    // MCP - checkLightSide(...) MCP - getOpposite()
+                    chunk.a(enumfacing.opposite()); // TODO
                 }
 
-                this.setSkylightUpdated();
+                this.z(); // MCP - setSkylightUpdated()
             }
         }
     }
@@ -265,35 +301,32 @@ public abstract class MixinChunk implements AsyncLightingChunk {
      * @return True if light update was successful, false if not
      */
     private boolean checkLightAsync(int x, int z, List<Chunk> neighbors) {
-        int i = this.getTopFilledSegment();
+        int i = this.g(); // MCP - getTopFilledSegment()
         boolean flag = false;
         boolean flag1 = false;
-        BlockPosition.PooledBlockPosition blockpos$mutableblockpos = new BlockPosition.PooledBlockPosition((this.x << 4) + x, 0, (this.z << 4) + z);
+        // TODO
+        BlockPosition.PooledBlockPosition blockpos$mutableblockpos = new BlockPosition.PooledBlockPosition((this.locX << 4) + x, 0, (this.locZ << 4) + z);
 
         for (int j = i + 16 - 1; j > this.world.getSeaLevel() || j > 0 && !flag1; --j) {
-            blockpos$mutableblockpos.setPos(blockpos$mutableblockpos.getX(), j, blockpos$mutableblockpos.getZ());
-            int k = this.getBlockState(blockpos$mutableblockpos).getLightOpacity();
+            blockpos$mutableblockpos.a(blockpos$mutableblockpos.getX(), j, blockpos$mutableblockpos.getZ());
+            //                                                  MCP - getLightOpacity()
+            int k = this.getBlockData(blockpos$mutableblockpos).c();
 
-            if (k == 255 && blockpos$mutableblockpos.getY() < this.world.getSeaLevel())
-            {
+            if (k == 255 && blockpos$mutableblockpos.getY() < this.world.getSeaLevel()) {
                 flag1 = true;
             }
 
-            if (!flag && k > 0)
-            {
+            if (!flag && k > 0) {
                 flag = true;
-            }
-            else if (flag && k == 0 && !this.checkWorldLight(blockpos$mutableblockpos, neighbors))
-            {
+            } else if (flag && k == 0 && !this.checkWorldLight(blockpos$mutableblockpos, neighbors)) {
                 return false;
             }
         }
 
         for (int l = blockpos$mutableblockpos.getY(); l > 0; --l) {
-            blockpos$mutableblockpos.setPos(blockpos$mutableblockpos.getX(), l, blockpos$mutableblockpos.getZ());
+            blockpos$mutableblockpos.a(blockpos$mutableblockpos.getX(), l, blockpos$mutableblockpos.getZ());
 
-            if (this.getBlockState(blockpos$mutableblockpos).getLightValue() > 0)
-            {
+            if (this.getBlockData(blockpos$mutableblockpos).c() > 0) {
                 this.checkWorldLight(blockpos$mutableblockpos, neighbors);
             }
         }
@@ -311,8 +344,9 @@ public abstract class MixinChunk implements AsyncLightingChunk {
      */
     private Chunk getLightChunk(int chunkX, int chunkZ, List<Chunk> neighbors) {
         final Chunk currentChunk = (Chunk)(Object) this;
-        if (currentChunk.isAtLocation(chunkX, chunkZ)) {
-            if (currentChunk.unloadQueued) {
+        // MCP - isAtLocation
+        if(currentChunk.a(chunkX, chunkZ)) {
+            if (currentChunk.d) {
                 return null;
             }
             return currentChunk;
@@ -323,9 +357,9 @@ public abstract class MixinChunk implements AsyncLightingChunk {
                 return null;
             }
         }
-        for (net.minecraft.world.chunk.Chunk neighbor : neighbors) {
-            if (neighbor.isAtLocation(chunkX, chunkZ)) {
-                if (neighbor.unloadQueued) {
+        for(Chunk neighbor : neighbors) {
+            if (neighbor.a(chunkX, chunkZ)) {
+                if (neighbor.d) {
                     return null;
                 }
                 return neighbor;
@@ -409,7 +443,8 @@ public abstract class MixinChunk implements AsyncLightingChunk {
         return chunkList;
     }
 
-    @Inject(method = "relightBlock", at = @At("HEAD"), cancellable = true)
+    // MCP - target: relightBlock -> c
+    @Inject(method = "c(III)V", at = @At("HEAD"), cancellable = true)
     private void onRelightBlock(int x, int y, int z, CallbackInfo ci) {
         if (!this.world.isClientSide) {
             this.lightExecutorService.execute(() -> {
@@ -426,8 +461,7 @@ public abstract class MixinChunk implements AsyncLightingChunk {
      * @param y The y position
      * @param z The z position
      */
-    private void relightBlockAsync(int x, int y, int z)
-    {
+    private void relightBlockAsync(int x, int y, int z) {
         int i = this.heightMap[z << 4 | x] & 255;
         int j = i;
 
@@ -436,8 +470,8 @@ public abstract class MixinChunk implements AsyncLightingChunk {
             j = y;
         }
 
-        while (j > 0 && this.getBlockLightOpacity(x, j - 1, z) == 0)
-        {
+        //                   MCP - getBlockLightOpacity(...)
+        while (j > 0 && this.d(x, j - 1, z) == 0) {
             --j;
         }
 
@@ -445,10 +479,10 @@ public abstract class MixinChunk implements AsyncLightingChunk {
         {
             this.markBlocksDirtyVerticalAsync(x + this.locX * 16, z + this.locZ * 16, j, i);
             this.heightMap[z << 4 | x] = j;
-            int k = this.x * 16 + x;
-            int l = this.z * 16 + z;
+            int k = this.locX * 16 + x;
+            int l = this.locZ * 16 + z;
 
-            if (this.world.worldProvider.isSkyMissing()) {
+            if (this.world.worldProvider.m()) {
                 if (j < i) {
                     for (int j1 = j; j1 < i; ++j1) {
                         // MCP - ExtendedBlockStorage        MCP - storageArrays
@@ -456,9 +490,10 @@ public abstract class MixinChunk implements AsyncLightingChunk {
 
                         //                           MCP - Chunk.NULL_BLOCK_STORAGE
                         if (extendedblockstorage2 != Chunk.EMPTY_CHUNK_SECTION) {
-                            // MCP - setSkyLight(...) // TODO - verify
-                            extendedblockstorage2.b(x, j1 & 15, z, 15);
-                            this.world.notifyLightSet(new BlockPosition((this.x << 4) + x, j1, (this.z << 4) + z));
+                            // MCP - setSkyLight(...)
+                            extendedblockstorage2.a(x, j1 & 15, z, 15);
+                            // MCP - notifyLightSet(...)
+                            this.world.m(new BlockPosition((this.locX << 4) + x, j1, (this.locZ << 4) + z));
                         }
                     }
                 } else {
@@ -466,9 +501,9 @@ public abstract class MixinChunk implements AsyncLightingChunk {
                         ChunkSection extendedblockstorage = this.sections[i1 >> 4];
 
                         if (extendedblockstorage != Chunk.EMPTY_CHUNK_SECTION) {
-                            // MCP - setSkyLight(...) // TODO - verify
-                            extendedblockstorage.b(x, i1 & 15, z, 0);
-                            this.world.notifyLightSet(new BlockPosition((this.x << 4) + x, i1, (this.z << 4) + z));
+                            // MCP - setSkyLight(...)
+                            extendedblockstorage.a(x, i1 & 15, z, 0);
+                            this.world.m(new BlockPosition((this.locX << 4) + x, i1, (this.locZ << 4) + z));
                         }
                     }
                 }
@@ -477,7 +512,8 @@ public abstract class MixinChunk implements AsyncLightingChunk {
 
                 while (j > 0 && k1 > 0) {
                     --j;
-                    int i2 = this.getBlockLightOpacity(x, j, z);
+                    // MCP - getBlockLightOpacity(...)
+                    int i2 = this.d(x, j, z);
 
                     if (i2 == 0) {
                         i2 = 1;
@@ -501,27 +537,26 @@ public abstract class MixinChunk implements AsyncLightingChunk {
             int j2 = i;
             int k2 = l1;
 
-            if (l1 < i)
-            {
+            if (l1 < i) {
                 j2 = l1;
                 k2 = i;
             }
 
             // MCP - heightMapMinimum
-            if (l1 < this.x) {
-                this.x = l1;
+            if (l1 < this.v) {
+                this.v = l1;
             }
 
-            if (this.world.worldProvider.isSkyMissing()) {
+            if (this.world.worldProvider.m()) {
                 for (EnumDirection enumfacing : EnumDirection.EnumDirectionLimit.HORIZONTAL) {
-                    this.updateSkylightNeighborHeight(k + enumfacing.getAdjacentX(), l + enumfacing.getAdjacentZ(), j2, k2);
+                    this.a(k + enumfacing.getAdjacentX(), l + enumfacing.getAdjacentZ(), j2, k2);
                 }
 
-                this.updateSkylightNeighborHeight(k, l, j2, k2);
+                this.a(k, l, j2, k2);
             }
 
             //this.dirty = true;
-            this.markDirty();
+            this.s = true;
         }
     }
 
@@ -541,8 +576,8 @@ public abstract class MixinChunk implements AsyncLightingChunk {
             x2 = i;
         }
 
-        // MCP - hasSkyLight() // TODO: verify
-        if(this.world.worldProvider.isSkyMissing()) {
+        // MCP - hasSkyLight()
+        if(this.world.worldProvider.m()) {
             for (int j = x2; j <= z2; ++j) {
                 final BlockPosition pos = new BlockPosition(x1, j, z1);
                 final Chunk chunk = this.getLightChunk(pos.getX() >> 4, pos.getZ() >> 4, null);
@@ -553,7 +588,8 @@ public abstract class MixinChunk implements AsyncLightingChunk {
             }
         }
 
-        this.world.markBlockRangeForRenderUpdate(x1, x2, z1, x1, z2, z1);
+        // MCP - markBlockRangeForRenderUpdate
+        this.world.b(x1, x2, z1, x1, z2, z1);
     }
 
     /**
@@ -590,7 +626,7 @@ public abstract class MixinChunk implements AsyncLightingChunk {
             return false;
         }
 
-        if (this.world.worldProvider.isSkyMissing()) {
+        if (this.world.worldProvider.m()) {
             flag |= ((AsyncLightingWorldServer) this.world).updateLightAsync(EnumSkyBlock.SKY, pos, chunk);
         }
 
