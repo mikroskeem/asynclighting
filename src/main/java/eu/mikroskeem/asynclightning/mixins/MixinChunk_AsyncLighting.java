@@ -123,6 +123,12 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
         }
     }
 
+    // MCP - target: recheckGaps -> h
+    @Inject(method = "h(Z)V", cancellable = true, at = @At("HEAD"))
+    public void onH(boolean flag, CallbackInfo ci) {
+        ci.cancel();
+    }
+
     // MCP - target: checkSkylightNeighborHeight -> b
     @Redirect(method = "b(III)V", at = @At(value = "INVOKE", target = ASYNC$World_getHeight))
     private BlockPosition onCheckSkylightGetHeight(World world, BlockPosition pos) {
