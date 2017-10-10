@@ -19,7 +19,7 @@ import javax.inject.Inject;
  */
 @OrionMod(id = "asynclighting")
 public final class AsyncLighting {
-    @Inject private Logger logger;
+    @Inject public Logger logger;
     @Inject private Orion orion;
     @Inject private ConfigurationLoader<CommentedConfigurationNode> configurationLoader;
 

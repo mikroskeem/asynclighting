@@ -5,7 +5,10 @@
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
   "server": [
+    "MixinChunk_Paper_PR_904",
+    "MixinWorldServer_Paper_PR_904",
     "MixinChunk_AsyncLighting",
+    "MixinChunk_SpongePort",
     "MixinWorld_AsyncLighting"
   ]
 }

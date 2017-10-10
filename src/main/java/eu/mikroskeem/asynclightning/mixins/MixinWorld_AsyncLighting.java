@@ -102,7 +102,8 @@ public abstract class MixinWorld_AsyncLighting implements AsyncLightingWorld {
             neighbor.setLightUpdateTime(chunk.getWorld().getTime()); // MCP - getTotalWorldTime()
         }
 
-        if(getMinecraftServer().primaryThread != Thread.currentThread()) {
+        //AsyncLighting.INSTANCE.logger.trace("Threadpool size = {}", ((java.util.concurrent.ThreadPoolExecutor) this.lightExecutorService).getQueue().size());
+        if(getMinecraftServer().isMainThread()) {
             this.lightExecutorService.execute(() ->
                 this.checkLightAsync(lightType, pos, chunk, neighbors)
             );
@@ -274,7 +275,7 @@ public abstract class MixinWorld_AsyncLighting implements AsyncLightingWorld {
         */
 
         final Chunk chunk = this.getLightChunk(pos, currentChunk, neighbors);
-        if (chunk == null || chunk.d) {
+        if (chunk == null || chunk.isUnloading()) {
             return lightType.c;
         }
 
@@ -283,7 +284,7 @@ public abstract class MixinWorld_AsyncLighting implements AsyncLightingWorld {
 
     private int getRawBlockLightAsync(EnumSkyBlock lightType, BlockPosition pos, Chunk currentChunk, List<Chunk> neighbors) {
         final Chunk chunk = getLightChunk(pos, currentChunk, neighbors);
-        if (chunk == null || chunk.d) {
+        if (chunk == null || chunk.isUnloading()) {
             return lightType.c;
         }
         //                                         MCP - canSeeSky(...)
@@ -335,7 +336,7 @@ public abstract class MixinWorld_AsyncLighting implements AsyncLightingWorld {
         }
         */
         final Chunk chunk = this.getLightChunk(pos, currentChunk, neighbors);
-        if (chunk != null && !chunk.d) {
+        if (chunk != null && !chunk.isUnloading()) {
             chunk.a(type, pos, lightValue); // MCP - setLightFor(...)
             this.m(pos); // MCP - notifyLightSet(...)
         }

@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * @author Mark Vainomaa
  */
-@Mixin(value = Chunk.class, remap = false)
+@Mixin(value = Chunk.class, remap = false, priority = 1002)
 public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
     private final static String ASYNC$World_getHeight = "Lnet/minecraft/server/v1_12_R1/World;getHighestBlockYAt(" +
             "Lnet/minecraft/server/v1_12_R1/BlockPosition;)Lnet/minecraft/server/v1_12_R1/BlockPosition;";
@@ -43,9 +43,6 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
             "Lnet/minecraft/server/v1_12_R1/BlockPosition;)Lnet/minecraft/server/v1_12_R1/IBlockData;";
     private final static String ASYNC$World_checkLight = "Lnet/minecraft/server/v1_12_R1/World;w(" +
             "Lnet/minecraft/server/v1_12_R1/BlockPosition;)Z";
-
-
-    private Chunk[] chunkNeighbors = new Chunk[4]; // TODO: populate somehow?
 
     // Keeps track of block positions in this chunk currently queued for sky light update
     private CopyOnWriteArrayList<Short> queuedSkyLightingUpdates = new CopyOnWriteArrayList<>();
@@ -68,8 +65,6 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
     @Shadow protected abstract void a(int i, int j, int k, int l); // MCP - updateSkylightNeighborHeight()
     @Shadow protected abstract int d(int i, int j, int k); // MCP - getBlockLightOpacity(...)
     @Shadow public abstract int b(int i, int j); // MCP - getHeightValue
-    @Shadow public abstract int w(); // MCP - getLowestHeight
-    @Shadow public boolean d; // MCP - unloadQueued
     @Shadow private boolean m; // MCP - isGapLightingUpdate
     @Shadow private boolean r; // MCP - ticked
     @Shadow private boolean lit; // MCP - isLightPopulated
@@ -80,10 +75,9 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
     @Shadow public abstract int g(); // MCP - getTopFilledSegment()
     @Shadow protected abstract void z(); // MCP - setSkylightUpdated()
     @Shadow protected abstract void a(EnumDirection direction); // MCP - checkLightSide()
-
+    @Shadow public abstract boolean isUnloading();
     @Shadow @Final public int[] heightMap;
     @Shadow @Final public World world;
-    @Shadow public abstract ChunkSection[] getSections();
 
     @Inject(method = "<init>(Lnet/minecraft/server/v1_12_R1/World;II)V", at = @At("RETURN"))
     private void onConstruct(World world, int x, int z, CallbackInfo ci) {
@@ -193,7 +187,8 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
                 }
             }
 
-            // this.isGapLightingUpdated = false;
+            // MCP - isGapLightingUpdated
+            this.m = false;
         }
     }
 
@@ -245,7 +240,7 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
             }
 
             // MCP - isQueuedForUnload() -> unloadQueued
-            if (this.d) {
+            if (this.isUnloading()) {
                 return;
             }
             final List<Chunk> neighborChunks = this.getSurroundingChunks();
@@ -254,7 +249,7 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
                 return;
             }
             
-            if(Thread.currentThread() != this.world.getMinecraftServer().primaryThread) {
+            if(this.world.getMinecraftServer().isMainThread()) {
                 this.lightExecutorService.execute(() ->
                     this.checkLightAsync(neighborChunks)
                 );
@@ -676,30 +671,5 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
     @Override
     public void checkLightSide(EnumDirection direction) {
         this.a(direction);
-    }
-
-    @Override
-    public boolean areNeighborsLoaded() {
-        for(int i = 0; i < 4; i++) {
-            if(this.chunkNeighbors[i] == null)
-                return false;
-        }
-        return true;
-    }
-
-    @Override
-    public Chunk getNeighborChunk(int index) {
-        return this.chunkNeighbors[index];
-    }
-
-    @Override
-    public List<Chunk> getNeighbors() {
-        List<Chunk> neighborList = new ArrayList<>();
-        for (Chunk neighbor : this.chunkNeighbors) {
-            if (neighbor != null) {
-                neighborList.add(neighbor);
-            }
-        }
-        return neighborList;
     }
 }
