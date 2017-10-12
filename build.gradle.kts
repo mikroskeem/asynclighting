@@ -34,3 +34,10 @@ license {
     sourceSets = setOf(java.sourceSets["main"])
     header = rootProject.file("etc/HEADER")
 }
+
+tasks {
+    "wrapper"(Wrapper::class) {
+        gradleVersion = rootProject.properties["gradle_version"]!! as String
+        distributionUrl = "https://services.gradle.org/distributions/gradle-$gradleVersion-all.zip"
+    }
+}
