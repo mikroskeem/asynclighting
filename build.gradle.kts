@@ -26,8 +26,8 @@ repositories {
 }
 
 dependencies {
-    compileOnly("eu.mikroskeem:orion.api:0.0.3-SNAPSHOT")
-    compileOnly("com.destroystokyo.paper:paper:1.12.2-R0.1-SNAPSHOT")
+    implementation("eu.mikroskeem:orion.api:0.0.3-SNAPSHOT")
+    implementation("com.destroystokyo.paper:paper:1.12.2-R0.1-SNAPSHOT")
 }
 
 license {
