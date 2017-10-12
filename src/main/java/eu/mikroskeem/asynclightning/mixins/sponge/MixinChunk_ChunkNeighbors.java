@@ -1,6 +1,6 @@
-package eu.mikroskeem.asynclightning.mixins;
+package eu.mikroskeem.asynclightning.mixins.sponge;
 
-import eu.mikroskeem.asynclightning.interfaces.AsyncLightingChunk;
+import eu.mikroskeem.asynclightning.interfaces.NeighborsChunk;
 import net.minecraft.server.v1_12_R1.BaseBlockPosition;
 import net.minecraft.server.v1_12_R1.Chunk;
 import net.minecraft.server.v1_12_R1.EnumDirection;
@@ -20,7 +20,7 @@ import java.util.List;
  * @author Mark Vainomaa
  */
 @Mixin(value = Chunk.class, remap = false, priority = 1001)
-public abstract class MixinChunk_SpongePort implements AsyncLightingChunk {
+public abstract class MixinChunk_ChunkNeighbors implements NeighborsChunk {
     @Shadow @Final public World world;
     @Shadow @Final public int locX;
     @Shadow @Final public int locZ;
@@ -45,7 +45,7 @@ public abstract class MixinChunk_SpongePort implements AsyncLightingChunk {
             int neighborIndex = directionToIndex(direction);
             int oppositeIndex = directionToIndex(direction.opposite());
             this.setNeighbor(neighborIndex, neighborChunk);
-            ((AsyncLightingChunk) neighborChunk).setNeighbor(oppositeIndex, (Chunk) (Object) this);
+            ((NeighborsChunk) neighborChunk).setNeighbor(oppositeIndex, (Chunk) (Object) this);
         }
     }
 
@@ -65,7 +65,7 @@ public abstract class MixinChunk_SpongePort implements AsyncLightingChunk {
             int neighborIndex = directionToIndex(direction);
             int oppositeIndex = directionToIndex(direction.opposite());
             this.setNeighbor(neighborIndex, null);
-            ((AsyncLightingChunk) neighborChunk).setNeighbor(oppositeIndex, null);
+            ((NeighborsChunk) neighborChunk).setNeighbor(oppositeIndex, null);
         }
     }
 

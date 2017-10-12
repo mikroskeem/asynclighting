@@ -11,7 +11,7 @@ import java.util.concurrent.ExecutorService;
  * @author Mark Vainomaa
  */
 public interface AsyncLightingWorld {
-    boolean c(EnumSkyBlock lightType, BlockPosition pos); // checkLightFor
+    boolean checkLightFor(EnumSkyBlock lightType, BlockPosition pos);
     boolean checkLightAsync(EnumSkyBlock lightType, BlockPosition pos, Chunk chunk, List<Chunk> neighbors);
     boolean updateLightAsync(EnumSkyBlock lightType, BlockPosition pos, Chunk currentChunk);
     ExecutorService getLightingExecutor();

@@ -1,4 +1,4 @@
-package eu.mikroskeem.asynclightning.mixins;
+package eu.mikroskeem.asynclightning.mixins.asynclighting;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import eu.mikroskeem.asynclightning.AsyncLighting;
@@ -45,8 +45,12 @@ public abstract class MixinWorld_AsyncLighting implements AsyncLightingWorld {
     );
 
     // MCP - checkLightFor -> c
-    @Override
     public boolean c(EnumSkyBlock enumskyblock, BlockPosition blockposition) {
+        return checkLightFor(enumskyblock, blockposition);
+    }
+
+    @Override
+    public boolean checkLightFor(EnumSkyBlock enumskyblock, BlockPosition blockposition) {
         return this.updateLightAsync(enumskyblock, blockposition, null);
     }
 

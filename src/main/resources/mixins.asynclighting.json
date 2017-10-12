@@ -5,8 +5,8 @@
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
   "server": [
-    "MixinChunk_AsyncLighting",
-    "MixinChunk_SpongePort",
-    "MixinWorld_AsyncLighting"
+    "sponge.MixinChunk_ChunkNeighbors",
+    "asynclighting.MixinChunk_AsyncLighting",
+    "asynclighting.MixinWorld_AsyncLighting"
   ]
 }

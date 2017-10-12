@@ -1,4 +1,4 @@
-package eu.mikroskeem.asynclightning.mixins;
+package eu.mikroskeem.asynclightning.mixins.asynclighting;
 
 import eu.mikroskeem.asynclightning.interfaces.AsyncLightingChunk;
 import eu.mikroskeem.asynclightning.interfaces.AsyncLightingWorld;
@@ -176,7 +176,7 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
 
                     for (EnumDirection enumfacing : EnumDirection.EnumDirectionLimit.HORIZONTAL) {
                         final Chunk chunk = this.getLightChunk((l + enumfacing.getAdjacentX()) >> 4, (i1 + enumfacing.getAdjacentZ()) >> 4, neighbors);
-                        if (chunk == null || chunk.d) {
+                        if (chunk == null || chunk.isUnloading()) {
                             continue;
                         }
                         //                MCP - getLowestHeight
@@ -207,7 +207,7 @@ public abstract class MixinChunk_AsyncLighting implements AsyncLightingChunk {
 
         final AsyncLightingChunk asyncLightingChunk = (AsyncLightingChunk) chunk;
         //                   MCP - unloadQueued
-        if (chunk == null || chunk.d || !asyncLightingChunk.areNeighborsLoaded()) {
+        if (chunk == null || chunk.isUnloading() || !asyncLightingChunk.areNeighborsLoaded()) {
             return Blocks.AIR.getBlockData();
         }
 
