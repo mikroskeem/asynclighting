@@ -26,7 +26,7 @@ repositories {
 }
 
 dependencies {
-    implementation("eu.mikroskeem:orion.api:0.0.3-SNAPSHOT")
+    implementation("eu.mikroskeem:orion.api:0.0.4-SNAPSHOT")
     implementation("com.destroystokyo.paper:paper:1.12.2-R0.1-SNAPSHOT")
 }
 

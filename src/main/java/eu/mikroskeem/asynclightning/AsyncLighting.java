@@ -29,7 +29,9 @@ package eu.mikroskeem.asynclightning;
 import com.google.common.eventbus.Subscribe;
 import eu.mikroskeem.orion.api.Orion;
 import eu.mikroskeem.orion.api.annotations.OrionMod;
+import eu.mikroskeem.orion.api.configuration.ObjectConfigurationLoader;
 import eu.mikroskeem.orion.api.events.ModConstructEvent;
+import eu.mikroskeem.shuriken.common.SneakyThrow;
 import ninja.leaping.configurate.commented.CommentedConfigurationNode;
 import ninja.leaping.configurate.loader.ConfigurationLoader;
 import ninja.leaping.configurate.objectmapping.ObjectMapper;
@@ -43,25 +45,20 @@ import javax.inject.Inject;
  *
  * @author Mark Vainomaa
  */
-@OrionMod(id = "asynclighting")
+@OrionMod(id = "asynclighting", configurationClass = AsyncLightingConfig.class)
 public final class AsyncLighting {
     @Inject public Logger logger;
     @Inject private Orion orion;
-    @Inject private ConfigurationLoader<CommentedConfigurationNode> configurationLoader;
+    @Inject private ObjectConfigurationLoader<AsyncLightingConfig> configurationLoader;
 
     public static AsyncLighting INSTANCE;
-    private CommentedConfigurationNode baseNode;
-    private ObjectMapper<AsyncLightingConfig>.BoundInstance om;
     public AsyncLightingConfig config;
 
     @Subscribe
     public void on(ModConstructEvent e) throws Exception {
-        baseNode = configurationLoader.load();
-        om = ObjectMapper.forClass(AsyncLightingConfig.class).bindToNew();
-        om.populate(baseNode.getNode("asynclighting"));
-        om.serialize(baseNode.getNode("asynclighting"));
-        configurationLoader.save(baseNode);
-        config = om.getInstance();
+        configurationLoader.load();
+        configurationLoader.save();
+        config = configurationLoader.getConfiguration();
 
         logger.info("Sponge Async Lighting V2 patch - Orion port by mikroskeem");
         if(!config.useAsyncLighting) return;
